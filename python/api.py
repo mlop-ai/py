@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
 
 Base = declarative_base()
 
@@ -21,19 +22,21 @@ class Run(Base):
     projectId = Column(Integer, ForeignKey("projects.id"))
     organizationId = Column(Integer)
     status = Column(String)
+    updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     project = relationship("Project", backref="runs")
 
     def __repr__(self):
         return (
             f"<Run(id={self.id}, projectId={self.projectId}, "
-            f"organizationId={self.organizationId}, status={self.status})>"
+            f"organizationId={self.organizationId}, status={self.status}, "
+            f"updatedAt={self.updatedAt})>"
         )
 
 
-def process_runs(session, ch_client):
-    runs = session.query(Run).all()
+def process_runs(session, ch_client, grace=16):
     now_utc = datetime.now(timezone.utc)
+    runs = session.query(Run).all()
 
     runs = [r for r in runs if r.status == "RUNNING"]
     for run in runs:
@@ -71,12 +74,14 @@ def process_runs(session, ch_client):
             except ValueError as e:
                 print(f"Error parsing metric time for run {run.id}: {e}")
                 continue
-
         if last_metric_time.tzinfo is None:
             last_metric_time = last_metric_time.replace(tzinfo=timezone.utc)
 
         time_diff = now_utc - last_metric_time
-        if time_diff > timedelta(minutes=10):
+        if timedelta(seconds=grace) < time_diff < timedelta(days=16384) or (
+            # for runs with no metrics, use updatedAt time
+            last_metric_time == datetime.fromtimestamp(0, timezone.utc) and timedelta(seconds=grace) < now_utc - run.updatedAt.replace(tzinfo=timezone.utc)
+        ):
             print(
                 f"Run {run.id} (Project: {project_name}) last metric at {last_metric_time} is older than 10 minutes."
             )
@@ -85,7 +90,5 @@ def process_runs(session, ch_client):
             print(
                 f"Run {run.id} (Project: {project_name}) is active. Last metric at {last_metric_time}."
             )
-
-    # Commit updates to PostgreSQL.
     session.commit()
-    print("All updates committed to the database.")
+    print("All updates saved to the database.")
