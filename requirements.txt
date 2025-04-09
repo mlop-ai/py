@@ -1,0 +1,4 @@
+clickhouse_connect
+dotenv
+sqlalchemy
+psycopg2-binary
