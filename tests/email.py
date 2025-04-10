@@ -1,11 +1,14 @@
 import os
+import sys
 from datetime import datetime, timedelta
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
 
 from python.send import send_email
-from python.sqid import sqid_encode
 from python.temp import process_run_email
+from python.utils import get_run_url
 
 load_dotenv()
 
@@ -16,6 +19,7 @@ SMTP_CONFIG = {
     "password": os.getenv("SMTP_PASSWORD"),
     "from_address": os.getenv("SMTP_FROM_ADDRESS"),
     "to_address": os.getenv("SMTP_TO_ADDRESS"),
+    "app_host": os.getenv("APP_HOST"),
 }
 
 send_email(
@@ -28,7 +32,12 @@ send_email(
         project_name="examples",
         last_metric_time=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         time_diff_seconds=int(timedelta(seconds=16).total_seconds()),
-        run_url=f"https://localhost/o/mlop/projects/examples/{sqid_encode(1)}",
+        run_url=get_run_url(
+            host=SMTP_CONFIG["app_host"],
+            organization="mlop",
+            project="examples",
+            run_id=1
+        ),
         reason="The run may have stalled and requires attention."
     ),
     html=True

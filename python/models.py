@@ -1,7 +1,57 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
 
 Base = declarative_base()
+
+class Project(Base):
+    __tablename__ = "projects"
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+
+    def __repr__(self):
+        return f"<Project(id={self.id}, name={self.name})>"
+
+
+class Run(Base):
+    __tablename__ = "runs"
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    projectId = Column(Integer, ForeignKey("projects.id"))
+    organizationId = Column(String, ForeignKey("organization.id"))
+    status = Column(String)
+    updatedAt = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    project = relationship("Project", backref="runs")
+    organization = relationship("Organization", backref="runs")
+
+    def __repr__(self):
+        return (
+            f"<Run(id={self.id}, name={self.name}, projectId={self.projectId}, "
+            f"organizationId={self.organizationId}, status={self.status}, "
+            f"updatedAt={self.updatedAt})>"
+        )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    runId = Column(Integer, ForeignKey("runs.id"))
+    organizationId = Column(String)
+    createdAt = Column(DateTime(timezone=True), server_default=func.now())
+    type = Column(String)
+    content = Column(String)
+
+    run = relationship("Run", backref="notifications")
+
+    def __repr__(self):
+        return (
+            f"<Notification(id={self.id}, runId={self.runId}, "
+            f"organizationId={self.organizationId}, type={self.type}, "
+            f"content={self.content})>"
+        )
 
 class User(Base):
     __tablename__ = "user"

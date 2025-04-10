@@ -2,11 +2,12 @@ import os
 import sys
 import time
 
-from api import process_runs
 from clickhouse_connect import get_client as get_clickhouse_client
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from python.server import process_runs
 
 load_dotenv()
 
@@ -20,6 +21,7 @@ SMTP_CONFIG = {
     "username": os.getenv("SMTP_USERNAME"),
     "password": os.getenv("SMTP_PASSWORD"),
     "from_address": os.getenv("SMTP_FROM_ADDRESS"),
+    "app_host": os.getenv("APP_HOST"),
 }
 
 CH_HOST = CH_URL.split("https://")[1].split(":")[0]
