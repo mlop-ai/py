@@ -1,4 +1,11 @@
-def process_run_email(run_name: str, project_name: str, last_metric_time: str, time_diff_seconds: int, run_url: str, reason: str) -> str:
+def process_run_email(
+    run_name: str,
+    project_name: str,
+    last_metric_time: str,
+    time_diff_seconds: int,
+    run_url: str,
+    reason: str,
+) -> str:
     return f"""<html>
 <head>
     <style>
@@ -78,4 +85,4 @@ def process_run_email(run_name: str, project_name: str, last_metric_time: str, t
         </div>
     </div>
 </body>
-</html>""" 
+</html>"""

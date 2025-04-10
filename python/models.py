@@ -1,8 +1,20 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+import enum
+
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
 Base = declarative_base()
+
+class RunTriggerType(enum.Enum):
+    CANCEL = "CANCEL"
+
+class RunStatus(enum.Enum):
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    TERMINATED = "TERMINATED"
+    CANCELLED = "CANCELLED"
 
 class Project(Base):
     __tablename__ = "projects"
@@ -19,11 +31,11 @@ class Run(Base):
     name = Column(String)
     projectId = Column(Integer, ForeignKey("projects.id"))
     organizationId = Column(String, ForeignKey("organization.id"))
-    status = Column(String)
+    status = Column(Enum(RunStatus))
+    statusUpdated = Column(DateTime(timezone=True))
     updatedAt = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-
     project = relationship("Project", backref="runs")
     organization = relationship("Organization", backref="runs")
 
@@ -53,9 +65,10 @@ class Notification(Base):
             f"content={self.content})>"
         )
 
+
 class User(Base):
     __tablename__ = "user"
-    
+
     id = Column(String, primary_key=True)
     name = Column(String)
     email = Column(String, unique=True)
@@ -72,9 +85,10 @@ class User(Base):
 
     members = relationship("Member", back_populates="user")
 
+
 class Organization(Base):
     __tablename__ = "organization"
-    
+
     id = Column(String, primary_key=True)
     name = Column(String)
     slug = Column(String, unique=True)
@@ -84,9 +98,10 @@ class Organization(Base):
 
     members = relationship("Member", back_populates="organization")
 
+
 class Member(Base):
     __tablename__ = "member"
-    
+
     id = Column(String, primary_key=True)
     organizationId = Column(String, ForeignKey("organization.id"))
     userId = Column(String, ForeignKey("user.id"))
@@ -94,4 +109,18 @@ class Member(Base):
     createdAt = Column(DateTime)
 
     organization = relationship("Organization", back_populates="members")
-    user = relationship("User", back_populates="members") 
+    user = relationship("User", back_populates="members")
+
+
+class RunTriggers(Base):
+    __tablename__ = "run_triggers"
+    id = Column(Integer, primary_key=True)
+    runId = Column(Integer, ForeignKey("runs.id"))
+    trigger = Column(String)
+    createdAt = Column(DateTime(timezone=True), server_default=func.now())
+    triggerType = Column(Enum(RunTriggerType))
+
+    run = relationship("Run", backref="triggers")
+
+    def __repr__(self):
+        return f"<RunTriggers(id={self.id}, runId={self.runId}, trigger={self.trigger}, triggerType={self.triggerType})>"

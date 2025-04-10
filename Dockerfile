@@ -1,8 +1,11 @@
 # FROM python:3
 FROM condaforge/miniforge3
 ADD python python
+ADD main.py main.py
+ADD server.py server.py
 ADD requirements.txt requirements.txt
+ADD start.sh start.sh
 RUN pip install -r requirements.txt --root-user-action ignore
-
-# EXPOSE 8080
-ENTRYPOINT ["python3", "main.py"]
+RUN chmod +x start.sh
+ENTRYPOINT ["./start.sh"]
+EXPOSE 3000

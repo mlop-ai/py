@@ -51,9 +51,11 @@ def process_runs(session, ch_client, smtp_config, grace=16):
             last_metric_time = last_metric_time.replace(tzinfo=timezone.utc)
 
         # for runs with no metrics, use updatedAt time
-        if last_metric_time == datetime.fromtimestamp(0, timezone.utc) and timedelta(seconds=grace) < now_utc - run.updatedAt.replace(tzinfo=timezone.utc):
+        if last_metric_time == datetime.fromtimestamp(0, timezone.utc) and timedelta(
+            seconds=grace
+        ) < now_utc - run.updatedAt.replace(tzinfo=timezone.utc):
             last_metric_time = run.updatedAt.replace(tzinfo=timezone.utc)
-        
+
         time_diff = now_utc - last_metric_time
         if timedelta(seconds=grace) < time_diff < timedelta(days=16384):
             print(
@@ -77,17 +79,19 @@ def process_runs(session, ch_client, smtp_config, grace=16):
                     body=process_run_email(
                         run_name="test-run",
                         project_name="examples",
-                        last_metric_time=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                        last_metric_time=datetime.utcnow().strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
                         time_diff_seconds=int(timedelta(seconds=16).total_seconds()),
                         run_url=get_run_url(
                             host=smtp_config["app_host"],
                             organization=run.organization.slug,
-                            project=project_name, 
-                            run_id=run.id
+                            project=project_name,
+                            run_id=run.id,
                         ),
-                        reason="The run may have stalled and requires attention."
+                        reason="The run may have stalled and requires attention.",
                     ),
-                    html=True
+                    html=True,
                 )
         else:
             print(

@@ -1,5 +1,7 @@
 clickhouse_connect
 dotenv
+fastapi
+psycopg2-binary
 sqids
 sqlalchemy
-psycopg2-binary
+uvicorn

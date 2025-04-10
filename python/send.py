@@ -5,10 +5,10 @@ from email.mime.text import MIMEText
 
 def send_email(config, from_address, to_address, subject, body, html=False):
     email = MIMEMultipart()
-    email['From'] = from_address
-    email['To'] = to_address
-    email['Subject'] = subject
-    email.attach(MIMEText(body, 'html' if html else 'plain'))
+    email["From"] = from_address
+    email["To"] = to_address
+    email["Subject"] = subject
+    email.attach(MIMEText(body, "html" if html else "plain"))
 
     try:
         with smtplib.SMTP(config["server"], config["port"]) as server:

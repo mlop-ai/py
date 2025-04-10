@@ -28,9 +28,13 @@ CH_HOST = CH_URL.split("https://")[1].split(":")[0]
 CH_PORT = CH_URL.split("https://")[1].split(":")[1]
 
 
-
 def start():
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False}
+        if DATABASE_URL.startswith("sqlite")
+        else {},
+    )
     Session = sessionmaker(bind=engine)
     session = Session()
     ch_client = get_clickhouse_client(
