@@ -5,7 +5,6 @@ import time
 from api import process_runs
 from clickhouse_connect import get_client as get_clickhouse_client
 from dotenv import load_dotenv
-from send import send_email
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -20,6 +19,7 @@ SMTP_CONFIG = {
     "port": os.getenv("SMTP_PORT"),
     "username": os.getenv("SMTP_USERNAME"),
     "password": os.getenv("SMTP_PASSWORD"),
+    "from_address": os.getenv("SMTP_FROM_ADDRESS"),
 }
 
 CH_HOST = CH_URL.split("https://")[1].split(":")[0]
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     try:
         engine, session, ch_client = start()
         while True:
-            process_runs(session, ch_client)
+            process_runs(session, ch_client, smtp_config=SMTP_CONFIG)
             time.sleep(10)
     except Exception as err:
         print("Processing failed:", err)

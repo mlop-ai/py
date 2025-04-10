@@ -1,4 +1,5 @@
 clickhouse_connect
 dotenv
+sqids
 sqlalchemy
 psycopg2-binary
