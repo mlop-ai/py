@@ -33,6 +33,23 @@ class Run(Base):
             f"updatedAt={self.updatedAt})>"
         )
 
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    runId = Column(Integer, ForeignKey("runs.id"))
+    organizationId = Column(String)
+    createdAt = Column(DateTime(timezone=True), server_default=func.now())
+    type = Column(String)
+    content = Column(String)
+
+    run = relationship("Run", backref="notifications")
+
+    def __repr__(self):
+        return (
+            f"<Notification(id={self.id}, runId={self.runId}, "
+            f"organizationId={self.organizationId}, type={self.type}, "
+            f"content={self.content})>"
+        )    
 
 def process_runs(session, ch_client, grace=16):
     now_utc = datetime.now(timezone.utc)
@@ -86,6 +103,8 @@ def process_runs(session, ch_client, grace=16):
                 f"Run {run.id} (Project: {project_name}) last metric at {last_metric_time} is older than 10 minutes."
             )
             run.status = "FAILED"
+            session.add(Notification(runId=run.id, organizationId=run.organizationId, type="RUN_FAILED", content=f"Reason: last update exceeded {grace} seconds"))
+            
         else:
             print(
                 f"Run {run.id} (Project: {project_name}) is active. Last metric at {last_metric_time}."
