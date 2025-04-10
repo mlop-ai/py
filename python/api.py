@@ -6,6 +6,7 @@ from sqid import sqid_encode
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.sql import func
+from temp import process_run_email
 
 Base = declarative_base()
 
@@ -126,7 +127,15 @@ def process_runs(session, ch_client, smtp_config, grace=16):
                     from_address=smtp_config["from_address"],
                     to_address=e,
                     subject="mlop: status update",
-                    body=f"Run {run.name} (Project: {project_name}) may have stalled. The last metric was received at (UTC) {last_metric_time.strftime('%Y-%m-%d %H:%M:%S')} and has not been updated for more than {int(time_diff.total_seconds())} seconds. View the run at https://localhost/o/mlop/projects/{project_name}/{sqid_encode(run.id)}."
+                    body=process_run_email(
+                        run_name="test-run",
+                        project_name="examples",
+                        last_metric_time=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                        time_diff_seconds=int(timedelta(seconds=16).total_seconds()),
+                        run_url=f"https://localhost/o/mlop/projects/examples/{sqid_encode(1)}",
+                        content="The run may have stalled and requires attention."
+                    ),
+                    html=True
                 )
         else:
             print(
