@@ -1,4 +1,4 @@
 #!/bin/bash
 
-python3 main.py &
-python3 server.py
+python main.py &
+python server.py
