@@ -9,9 +9,8 @@ from python.utils import get_run_url
 
 def process_runs(session, ch_client, smtp_config, grace=16):
     now_utc = datetime.now(timezone.utc)
-    runs = session.query(Run).all()
-
-    runs = [r for r in runs if r.status == "RUNNING"]
+    runs = session.query(Run).filter(Run.status == "RUNNING").all()
+    print(f"Processing {len(runs)} runs")
     for run in runs:
         if not run.project:
             print(f"Run {run.id} has no associated project.")
