@@ -1,6 +1,15 @@
 import enum
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+)
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
@@ -124,3 +133,42 @@ class RunTriggers(Base):
 
     def __repr__(self):
         return f"<RunTriggers(id={self.id}, runId={self.runId}, trigger={self.trigger}, triggerType={self.triggerType})>"
+
+
+class RunGraphNode(Base):
+    __tablename__ = "run_graph_nodes"
+    id = Column(Integer, primary_key=True)
+    runId = Column(Integer, ForeignKey("runs.id"))
+    name = Column(String)
+    type = Column(String)
+    order = Column(Integer, nullable=True)
+    label = Column(String, nullable=True)
+    nodeId = Column(String, nullable=True)
+    nodeType = Column(String, nullable=True)
+    instId = Column(String, nullable=True)
+    args = Column(JSON, nullable=True)
+    kwargs = Column(JSON, nullable=True)
+    params = Column(JSON, nullable=True)
+
+    run = relationship("Run", backref="graph_nodes")
+
+    def __repr__(self):
+        return (
+            f"<RunGraphNode(id={self.id}, runId={self.runId}, name={self.name}, "
+            f"type={self.type}, nodeId={self.nodeId})>"
+        )
+
+class RunGraphEdge(Base):
+    __tablename__ = "run_graph_edges"
+    id = Column(Integer, primary_key=True)
+    runId = Column(Integer, ForeignKey("runs.id"))
+    sourceId = Column(String)
+    targetId = Column(String)
+
+    run = relationship("Run", backref="graph_edges")
+
+    def __repr__(self):
+        return (
+            f"<RunGraphEdge(id={self.id}, runId={self.runId}, "
+            f"sourceId={self.sourceId}, targetId={self.targetId})>"
+        )
