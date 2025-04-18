@@ -8,4 +8,4 @@ ADD start.sh start.sh
 RUN pip install -r requirements.txt --root-user-action ignore
 RUN chmod +x start.sh
 ENTRYPOINT ["./start.sh"]
-EXPOSE 3000
+EXPOSE 3004
