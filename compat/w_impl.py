@@ -301,35 +301,9 @@ class _WClientImpl:
             getattr(ce, field)()
 
         # Nested: members
-        mem = ent.members()
-        for field in (
-            "id",
-            "admin",
-            "pending",
-            "email",
-            "username",
-            "name",
-            "photoUrl",
-            "accountType",
-            "apiKey",
-            "role",
-        ):
-            getattr(mem, field)()
-        mr = mem.memberRole()
-        for field in ("ID", "name"):
-            getattr(mr, field)()
-
-        # Nested: invites → edges → node → fromUser
-        inv_node = ent.invites().edges().node()
-        for field in ("id", "email"):
-            getattr(inv_node, field)()
-        fu = inv_node.fromUser()
-        for field in ("id", "username"):
-            getattr(fu, field)()
-
-        # Nested: projects(first:1) → edges → node
-        proj_node = ent.projects(first=1).edges().node()
-        proj_node.id()
+        ent.members().__fields__()
+        ent.invites().edges().node().__fields__()
+        ent.projects(first=1).edges().node().__fields__()
 
         # workflowsAdmins & protectedAliases
         wf = ent.workflowsAdmins(adminType=Variable("workflowsAdminType"))
@@ -373,27 +347,7 @@ class _WClientImpl:
 
         latest_runs = entity.latestRuns()
         run_edges = latest_runs.edges()
-        run_node = run_edges.node()
-
-        for field in (
-            "id",
-            "name",
-            "displayName",
-            "state",
-            "createdAt",
-            "heartbeatAt",
-            "updatedAt",
-            "groupCounts",
-        ):
-            getattr(run_node, field)()
-
-        user = run_node.user()
-        for field in ("id", "username"):
-            getattr(user, field)()
-
-        project = run_node.project()
-        for field in ("id", "name", "entityName"):
-            getattr(project, field)()
+        run_edges.__fields__()
 
         return self.endpoint(op, {"entityName": entity_name})
 
@@ -450,57 +404,14 @@ class _WClientImpl:
         project_node = op.project(
             name=Variable("project"), entityName=Variable("entity")
         )
-        for field in ("internalId", "readOnly"):
-            getattr(project_node, field)()
         project_node.runCount(filters=Variable("filters"))
-
         runs = project_node.runs(
             filters=Variable("filters"),
             after=Variable("cursor"),
             first=Variable("perPage"),
             order=Variable("order"),
         )
-
-        edges = runs.edges()
-        node = edges.node()
-
-        for field in (
-            "id",
-            "tags",
-            "name",
-            "displayName",
-            "sweepName",
-            "state",
-            "config",
-            "group",
-            "jobType",
-            "commit",
-            "readOnly",
-            "createdAt",
-            "heartbeatAt",
-            "description",
-            "notes",
-            "systemMetrics",
-            "summaryMetrics",
-            "historyLineCount",
-            "groupCounts",
-            "historyKeys",
-        ):
-            getattr(node, field)()
-
-        user = node.user()
-        for field in ("id", "username"):
-            getattr(user, field)()
-
-        proj = node.project()
-        for field in ("id", "name", "entityName"):
-            getattr(proj, field)()
-
-        edges.cursor()
-
-        page_info = runs.pageInfo()
-        for field in ("endCursor", "hasNextPage"):
-            getattr(page_info, field)()
+        runs.__fields__()
 
         return self.endpoint(
             op,
@@ -530,20 +441,7 @@ class _WClientImpl:
             after=Variable("cursor"),
             first=Variable("perPage"),
         )
-
-        edges = models.edges()
-        node = edges.node()
-
-        # Include ProjectFragment fields
-        for field in ("id", "name", "entityName", "createdAt", "isBenchmark"):
-            getattr(node, field)()
-
-        edges.cursor()
-
-        page_info = models.pageInfo()
-        for field in ("endCursor", "hasNextPage"):
-            getattr(page_info, field)()
-
+        models.__fields__()
         return self.endpoint(
             op,
             {
