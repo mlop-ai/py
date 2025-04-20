@@ -6,7 +6,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from compat.migrate import get_client, list_runs, migrate_all, migrate_run
+from compat.migrate import get_client, list_runs, migrate_all, migrate_run_v1
 from python.models import Run, RunStatus, RunTriggers, RunTriggerType
 
 load_dotenv()
@@ -62,7 +62,7 @@ async def get_run_triggers(
     }
 
 
-@app.post("/api/compat/w/viewer")
+@app.post("/api/compat/w/viewer")  # TODO: protect
 async def _viewer(key: str = Body(..., embed=True)):
     c = get_client(key)
     return c.viewer()
@@ -99,7 +99,7 @@ async def _migrate_run(
     run: str = Body(..., embed=True),
 ):
     c = get_client(key)
-    if migrate_run(auth, c, entity, project, run):
+    if migrate_run_v1(auth, c, entity, project, run):
         return {"status": "success"}
     else:
         raise HTTPException(status_code=500, detail="Failed to migrate run")

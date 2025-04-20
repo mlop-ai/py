@@ -114,34 +114,16 @@ def parse_type(f, v):
         return None
 
 
-def migrate_run(auth, c, entity, project_name, run_name):
-    print("Migrating:", entity, project_name, run_name)
-
-    # TODO: remove max_int dependency
-    try:
-        f = c.run_files(
-            project=project_name, entity=entity, name=run_name, file_limit=max_int
-        )["project"]["run"]["files"]["edges"]
-        h = c.run_full_history(
-            project=project_name, entity=entity, name=run_name, samples=max_int
-        )["project"]["run"]["history"]
-    except Exception as e:
-        print("Error fetching run files or history:", e)
-        return None
-
+def get_settings(auth, c, r):
     settings = mlop.Settings()
     settings._sys = mlop.System(settings)
     settings._sys.monitor = lambda: {}
     settings._auth = auth
 
-    r = c.run(project_name=project_name, entity_name=entity, run_name=run_name)[
-        "project"
-    ]["run"]
-
     config = json.loads(r["config"])
     info = {k: v for k, v in r["runInfo"].items()}
     settings._sys.get_info = lambda: info
-    for i in ("config", "runInfo", "historyKeys", "summaryMetrics"):
+    for i in ("config", "runInfo", "summaryMetrics"):  # "historyKeys"
         r.pop(i) if i in r else None
     settings.compat = {
         (k if k != "heartbeatAt" else "updatedAt"): v for k, v in r.items()
@@ -158,10 +140,33 @@ def migrate_run(auth, c, entity, project_name, run_name):
     )
     settings.compat["viewer"] = c.viewer()["viewer"]
 
+    return settings, config, r["displayName"]
+
+
+def migrate_run_v0(auth, c, entity, project_name, run_name):
+    print("Migrating:", entity, project_name, run_name)
+
+    # TODO: remove max_int dependency
+    try:
+        f = c.run_files(
+            project=project_name, entity=entity, name=run_name, file_limit=max_int
+        )["project"]["run"]["files"]["edges"]
+        h = c.run_full_history(
+            project=project_name, entity=entity, name=run_name, samples=max_int
+        )["project"]["run"]["history"]
+    except Exception as e:
+        print("Error fetching run files or history:", e)
+        return None
+
+    r = c.run(project_name=project_name, entity_name=entity, run_name=run_name)[
+        "project"
+    ]["run"]
+    settings, config, name = get_settings(auth, c, r)
+
     op = mlop.init(
         dir=tmp,
         project=project_name,
-        name=r["displayName"],
+        name=name,
         config=config,
         settings=settings,
     )
@@ -186,6 +191,77 @@ def migrate_run(auth, c, entity, project_name, run_name):
         return None
 
 
+def migrate_run_v1(auth, c, entity, project_name, run_name):
+    print("Migrating:", entity, project_name, run_name)
+
+    # TODO: remove max_int dependency
+    try:
+        f = c.run_files(
+            project=project_name, entity=entity, name=run_name, file_limit=max_int
+        )["project"]["run"]["files"]["edges"]
+    except Exception as e:
+        print("Error fetching run files:", e)
+        return None
+
+    r = c.run(project_name=project_name, entity_name=entity, run_name=run_name)[
+        "project"
+    ]["run"]
+    hkeys = [
+        h for h in r["historyKeys"]["keys"]
+    ]  # list(r['historyKeys']['keys'].keys())
+
+    settings, config, name = get_settings(auth, c, r)
+
+    op = mlop.init(
+        dir=tmp,
+        project=project_name,
+        name=name,
+        config=config,
+        settings=settings,
+    )
+
+    hkeys = list(r["historyKeys"]["keys"].keys())
+    state = c.run_state_delta_query(
+        project_name=project_name,
+        entity_name=entity,
+        filters=json.dumps({"name": run_name}),
+        sampled_history_specs=[
+            json.dumps(
+                {
+                    "keys": ["_step", "_timestamp", e],
+                    "samples": max_int,
+                }
+            )
+            for e in hkeys
+        ],
+        enable_history_key_info=False,
+        enable_sampled_history=True,
+        enable_system_metrics=True,
+        limit=max_int,
+    )
+    h = state["project"]["runs"]["delta"][0]["run"]["sampledHistory"]
+
+    try:
+        for i in h:
+            for d in i:
+                step = d["_step"]
+                timestamp = float(d["_timestamp"])
+                for k, v in d.items():
+                    if not k.startswith("_"):
+                        e = None
+                        if isinstance(v, dict):  # non-metrics
+                            e = parse_type(f, v)
+                        elif isinstance(v, (int, float)):
+                            e = v
+                        op._log(data={k: e}, step=step, t=timestamp) if e else None
+        op.finish()
+        return True
+    except Exception as e:
+        print(e)
+        op.finish()
+        return None
+
+
 def migrate_all(auth, key, entity):
     c = get_client(key)
     try:
@@ -195,7 +271,7 @@ def migrate_all(auth, key, entity):
         runs = c.runs(project=project_name, entity=entity)["project"]["runs"]["edges"]
         for r in runs:
             run_name = r["node"]["name"]
-            migrate_run(auth, c, entity, project_name, run_name)
+            migrate_run_v1(auth, c, entity, project_name, run_name)
             if os.path.exists(tmp):
                 shutil.rmtree(tmp)
         return True
