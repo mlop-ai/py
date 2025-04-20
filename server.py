@@ -6,6 +6,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from compat.migrate import get_client, list_runs, migrate_all, migrate_run
 from python.models import Run, RunStatus, RunTriggers, RunTriggerType
 
 load_dotenv()
@@ -18,6 +19,8 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 app = FastAPI()
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -25,10 +28,14 @@ def get_db():
     finally:
         db.close()
 
+
 # TODO: add auth
 
+
 @app.post("/api/runs/triggers")
-async def get_run_triggers(runId: int = Body(..., embed=True), db: Session = Depends(get_db)):
+async def get_run_triggers(
+    runId: int = Body(..., embed=True), db: Session = Depends(get_db)
+):
     run = db.query(Run).filter(Run.id == runId).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -49,9 +56,56 @@ async def get_run_triggers(runId: int = Body(..., embed=True), db: Session = Dep
                 "trigger": trigger.trigger,
             }
             for trigger in triggers
-        ] if (False and triggers is not None) else None,
+        ]
+        if (False and triggers is not None)
+        else None,
     }
+
+
+@app.post("/api/compat/w/viewer")
+async def _viewer(key: str = Body(..., embed=True)):
+    c = get_client(key)
+    return c.viewer()
+
+
+@app.post("/api/compat/w/list-runs")
+async def _list_runs(
+    auth: str = Body(..., embed=True),
+    key: str = Body(..., embed=True),
+    entity: str = Body(..., embed=True),
+):
+    c = get_client(key)
+    return list_runs(c, entity)
+
+
+@app.post("/api/compat/w/migrate-all")
+async def _migrate_all(
+    auth: str = Body(..., embed=True),
+    key: str = Body(..., embed=True),
+    entity: str = Body(..., embed=True),
+):
+    if migrate_all(auth, key, entity):
+        return {"status": "success"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to migrate runs")
+
+
+@app.post("/api/compat/w/migrate-run")
+async def _migrate_run(
+    auth: str = Body(..., embed=True),
+    key: str = Body(..., embed=True),
+    entity: str = Body(..., embed=True),
+    project: str = Body(..., embed=True),
+    run: str = Body(..., embed=True),
+):
+    c = get_client(key)
+    if migrate_run(auth, c, entity, project, run):
+        return {"status": "success"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to migrate run")
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=3004)

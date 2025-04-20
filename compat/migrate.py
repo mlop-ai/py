@@ -1,0 +1,211 @@
+
+
+import base64
+import datetime
+import json
+import os
+import shutil
+import uuid
+
+import mlop
+import requests
+import urllib3
+from gql import Client, gql
+from gql.transport.requests import RequestsHTTPTransport
+from requests.auth import HTTPBasicAuth
+
+from .w import _WClient
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+max_int = 2**31 - 1
+tmp = ".tmp"
+
+
+def get_client(key, **kwargs):
+    transport = RequestsHTTPTransport(
+        url="https://localhost/graphql",
+        auth=HTTPBasicAuth("api", key),
+        headers={
+            "Host": "localhost",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "Use-Admin-Privileges": "true",  # custom
+            "Origin": "https://localhost",
+            "Accept": "*/*",
+            # **auth,
+        },
+        # **kwargs
+    )
+    client = Client(transport=transport)
+    return _WClient(client)
+
+
+def list_runs(c, entity):
+    res = c.projects(entity=entity, per_page=max_int)["models"]["edges"]
+    for p in res:
+        project_name = p["node"]["name"]
+        p["node"]["runs"] = c.runs(project=project_name, entity=entity)["project"][
+            "runs"
+        ]["edges"]
+    return res
+
+
+def download_file(file, url=None):
+    file = os.path.dirname(file) + "/" + str(uuid.uuid4()) + os.path.basename(file)
+    if url:
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        with open(file, "wb") as f:
+            f.write(requests.get(url).content)
+
+    if os.path.exists(file):
+        return file
+    return None
+
+
+def get_file_url(f, name):
+    for e in f:
+        if e["node"]["name"] == name:
+            return e["node"]["directUrl"]
+    return None
+
+
+def parse_type(f, v):
+    type = v.get("_type")
+    if type:
+        if type == "image-file":
+            path = v.get("path")
+            url = get_file_url(f, name=path)
+            local = download_file(f"{tmp}/{path}", url)
+            if local:
+                e = mlop.Image(data=local, caption=v.get("caption"))
+        elif type == "images/separated":
+            e = []
+            for i in range(len(v.get("filenames"))):
+                path = v.get("filenames")[i]
+                url = get_file_url(f, name=path)
+                local = download_file(f"{tmp}/{path}", url)
+                if local:
+                    e.append(mlop.Image(data=local, caption=v.get("captions")[i]))
+        elif type == "audio-file":
+            path = v.get("path")
+            url = get_file_url(f, name=path)
+            local = download_file(f"{tmp}/{path}", url)
+            if local:
+                e = mlop.Audio(data=local, caption=v.get("caption"))
+        elif type == "audio":
+            e = []
+            for i in range(len(v.get("audio"))):
+                e.append(parse_type(f, v.get("audio")[i]))
+        elif type == "video-file":
+            path = v.get("path")
+            url = get_file_url(f, name=path)
+            local = download_file(f"{tmp}/{path}", url)
+            if local:
+                e = mlop.Video(data=local, caption=v.get("caption"))
+        elif type == "videos":
+            e = []
+            for i in range(len(v.get("videos"))):
+                e.append(parse_type(f, v.get("videos")[i]))
+        else:
+            print("Unknown type:", v)
+        return e
+    else:
+        return None
+
+
+def migrate_run(auth, c, entity, project_name, run_name):
+    print("Migrating:", entity, project_name, run_name)
+
+    # TODO: remove max_int dependency
+    try:
+        f = c.run_files(
+            project=project_name, entity=entity, name=run_name, file_limit=max_int
+        )["project"]["run"]["files"]["edges"]
+        h = c.run_full_history(
+            project=project_name, entity=entity, name=run_name, samples=max_int
+        )["project"]["run"]["history"]
+    except Exception as e:
+        print("Error fetching run files or history:", e)
+        return None
+
+    settings = mlop.Settings()
+    settings._sys = mlop.System(settings)
+    settings._sys.monitor = lambda: {}
+    settings._auth = auth
+
+    r = c.run(project_name=project_name, entity_name=entity, run_name=run_name)[
+        "project"
+    ]["run"]
+
+    config = json.loads(r["config"])
+    info = {k: v for k, v in r["runInfo"].items()}
+    settings._sys.get_info = lambda: info
+    for i in ("config", "runInfo", "historyKeys", "summaryMetrics"):
+        r.pop(i) if i in r else None
+    settings.compat = {
+        (k if k != "heartbeatAt" else "updatedAt"): v for k, v in r.items()
+    }
+    settings.compat["createdAt"] = int(
+        datetime.datetime.strptime(
+            settings.compat["createdAt"], "%Y-%m-%dT%H:%M:%SZ"
+        ).timestamp()
+    )
+    settings.compat["updatedAt"] = int(
+        datetime.datetime.strptime(
+            settings.compat["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
+        ).timestamp()
+    )
+    settings.compat["viewer"] = c.viewer()["viewer"]
+
+    op = mlop.init(
+        dir=tmp,
+        project=project_name,
+        name=r["displayName"],
+        config=config,
+        settings=settings,
+    )
+    try:
+        for d in h:
+            d = json.loads(d)  # TODO: cleanup before parsing
+            step = d["_step"]
+            timestamp = float(d["_timestamp"])
+            for k, v in d.items():
+                if not k.startswith("_"):
+                    e = None
+                    if isinstance(v, dict):  # non-metrics
+                        e = parse_type(f, v)
+                    elif isinstance(v, (int, float)):
+                        e = v
+                    op._log(data={k: e}, step=step, t=timestamp) if e else None
+        op.finish()
+        return True
+    except Exception as e:
+        print(e)
+        op.finish()
+        return None
+
+
+def migrate_all(auth, key, entity):
+    c = get_client(key)
+    try:
+        projects = c.projects(entity=entity, per_page=max_int)["models"]["edges"]
+        for p in projects:
+            project_name = p["node"]["name"]
+        runs = c.runs(project=project_name, entity=entity)["project"]["runs"]["edges"]
+        for r in runs:
+            run_name = r["node"]["name"]
+            migrate_run(auth, c, entity, project_name, run_name)
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+        return True
+    except Exception as e:
+        print("Error migrating:", e)
+        return None
+
+
+if __name__ == "__main__":
+    auth = input("Enter mlop auth: ")
+    key = input("Enter w api key: ")
+    entity = input("Enter w entity: ")
+    migrate_all(auth, key, entity)

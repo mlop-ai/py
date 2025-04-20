@@ -1,5 +1,6 @@
 # FROM python:3
 FROM condaforge/miniforge3
+ADD compat compat
 ADD python python
 ADD main.py main.py
 ADD server.py server.py
