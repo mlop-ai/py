@@ -15,8 +15,10 @@ from sqlalchemy.sql import func
 
 Base = declarative_base()
 
+
 class RunTriggerType(enum.Enum):
     CANCEL = "CANCEL"
+
 
 class RunStatus(enum.Enum):
     RUNNING = "RUNNING"
@@ -24,6 +26,7 @@ class RunStatus(enum.Enum):
     FAILED = "FAILED"
     TERMINATED = "TERMINATED"
     CANCELLED = "CANCELLED"
+
 
 class Project(Base):
     __tablename__ = "projects"
@@ -40,6 +43,7 @@ class Run(Base):
     name = Column(String)
     projectId = Column(Integer, ForeignKey("projects.id"))
     organizationId = Column(String, ForeignKey("organization.id"))
+    loggerSettings = Column(JSON)
     status = Column(Enum(RunStatus))
     statusUpdated = Column(DateTime(timezone=True))
     updatedAt = Column(
@@ -157,6 +161,7 @@ class RunGraphNode(Base):
             f"<RunGraphNode(id={self.id}, runId={self.runId}, name={self.name}, "
             f"type={self.type}, nodeId={self.nodeId})>"
         )
+
 
 class RunGraphEdge(Base):
     __tablename__ = "run_graph_edges"
