@@ -70,13 +70,16 @@ def get_file_url(c, f, name, entity, project_name, run_name):
     # print("File not found in cached list:", name)
     try:
         url = c.direct_url_query(
-            project_name=project_name, entity_name=entity, run_name=run_name, filenames=[f"{name}"]
-        )['project']['run']['files']['edges'][0]['node']['directUrl']
+            project_name=project_name,
+            entity_name=entity,
+            run_name=run_name,
+            filenames=[f"{name}"],
+        )["project"]["run"]["files"]["edges"][0]["node"]["directUrl"]
         if url:
             return url
     except Exception as e:
         print(e)
-    print("File not found:", name)        
+    print("File not found:", name)
     return None
 
 
@@ -85,7 +88,14 @@ def parse_type(c, f, v, entity, project_name, run_name):
     if type:
         if type == "image-file":
             path = v.get("path")
-            url = get_file_url(c, f, name=path, entity=entity, project_name=project_name, run_name=run_name)
+            url = get_file_url(
+                c,
+                f,
+                name=path,
+                entity=entity,
+                project_name=project_name,
+                run_name=run_name,
+            )
             local = download_file(f"{tmp}/{path}", url)
             if local:
                 e = mlop.Image(data=local, caption=v.get("caption"))
@@ -93,35 +103,60 @@ def parse_type(c, f, v, entity, project_name, run_name):
             e = []
             for i in range(len(v.get("filenames"))):
                 path = v.get("filenames")[i]
-                url = get_file_url(c,f, name=path, entity=entity, project_name=project_name, run_name=run_name)
+                url = get_file_url(
+                    c,
+                    f,
+                    name=path,
+                    entity=entity,
+                    project_name=project_name,
+                    run_name=run_name,
+                )
                 local = download_file(f"{tmp}/{path}", url)
                 if local:
                     e.append(mlop.Image(data=local, caption=v.get("captions")[i]))
         elif type == "audio-file":
             path = v.get("path")
-            url = get_file_url(c,f, name=path, entity=entity, project_name=project_name, run_name=run_name)
+            url = get_file_url(
+                c,
+                f,
+                name=path,
+                entity=entity,
+                project_name=project_name,
+                run_name=run_name,
+            )
             local = download_file(f"{tmp}/{path}", url)
             if local:
                 e = mlop.Audio(data=local, caption=v.get("caption"))
         elif type == "audio":
             e = []
             for i in range(len(v.get("audio"))):
-                e.append(parse_type(c, f, v.get("audio")[i], entity, project_name, run_name))
+                e.append(
+                    parse_type(c, f, v.get("audio")[i], entity, project_name, run_name)
+                )
         elif type == "video-file":
             path = v.get("path")
-            url = get_file_url(c, f, name=path, entity=entity, project_name=project_name, run_name=run_name)
+            url = get_file_url(
+                c,
+                f,
+                name=path,
+                entity=entity,
+                project_name=project_name,
+                run_name=run_name,
+            )
             local = download_file(f"{tmp}/{path}", url)
             if local:
                 e = mlop.Video(data=local, caption=v.get("caption"))
         elif type == "videos":
             e = []
             for i in range(len(v.get("videos"))):
-                e.append(parse_type(c, f, v.get("videos")[i], entity, project_name, run_name))
+                e.append(
+                    parse_type(c, f, v.get("videos")[i], entity, project_name, run_name)
+                )
         elif type == "histogram":
             return None
             if v.get("packedBins"):
                 bins = v.get("packedBins")
-                bins = [ bins["min"] + bins["size"] * i for i in range(bins["count"]) ]
+                bins = [bins["min"] + bins["size"] * i for i in range(bins["count"])]
             else:
                 bins = v.get("bins")
             data = [
@@ -166,52 +201,18 @@ def get_settings(auth, c, r):
     return settings, config, r["displayName"]
 
 
-def migrate_run_v0(auth, c, entity, project_name, run_name):
-    print("Migrating:", entity, project_name, run_name)
-
-    # TODO: remove max_int dependency
-    try:
-        f = c.run_files(
-            project=project_name, entity=entity, name=run_name, file_limit=max_int
-        )["project"]["run"]["files"]["edges"]
-        h = c.run_full_history(
-            project=project_name, entity=entity, name=run_name, samples=max_int
-        )["project"]["run"]["history"]
-    except Exception as e:
-        print("Error fetching run files or history:", e)
-        return None
-
-    r = c.run(project_name=project_name, entity_name=entity, run_name=run_name)[
-        "project"
-    ]["run"]
-    settings, config, name = get_settings(auth, c, r)
-
-    op = mlop.init(
-        dir=tmp,
-        project=project_name,
-        name=name,
-        config=config,
-        settings=settings,
-    )
-    try:
-        for d in h:
-            d = json.loads(d)  # TODO: cleanup before parsing
-            step = d["_step"]
-            timestamp = float(d["_timestamp"])
-            for k, v in d.items():
-                if not k.startswith("_"):
-                    e = None
-                    if isinstance(v, dict):  # non-metrics
-                        e = parse_type(c, f, v, entity, project_name, run_name)
-                    elif isinstance(v, (int, float)):
-                        e = v
-                    op._log(data={k: e}, step=step, t=timestamp) if e else None
-        op.finish()
-        return True
-    except Exception as e:
-        print(e)
-        op.finish()
-        return None
+def get_sys(sys, op):
+    for i in range(len(sys)):
+        line = json.loads(sys[i])
+        step = i + 1
+        timestamp = line["_timestamp"]
+        for k, v in line.items():
+            if not k.startswith("_") and isinstance(v, (int, float)):
+                op._log(
+                    data={k.replace("system", "sys").replace(".", "/"): v},
+                    step=step,
+                    t=timestamp,
+                )
 
 
 def migrate_run_v1(auth, c, entity, project_name, run_name):
@@ -265,6 +266,14 @@ def migrate_run_v1(auth, c, entity, project_name, run_name):
     h = state["project"]["runs"]["delta"][0]["run"]["sampledHistory"]
 
     try:
+        get_sys(
+            sys=c.run_system_metrics(
+                project_name=project_name,
+                entity_name=entity,
+                run_name=run_name,
+            )["project"]["run"]["events"],
+            op=op,
+        )
         for i in h:
             for d in i:
                 step = d["_step"]
@@ -303,8 +312,61 @@ def migrate_all(auth, key, entity):
         return None
 
 
+
 if __name__ == "__main__":
     auth = input("Enter mlop auth: ")
     key = input("Enter w api key: ")
     entity = input("Enter w entity: ")
     migrate_all(auth, key, entity)
+
+
+
+
+### DEPRECATED
+
+def migrate_run_v0(auth, c, entity, project_name, run_name):
+    print("Migrating:", entity, project_name, run_name)
+
+    # TODO: remove max_int dependency
+    try:
+        f = c.run_files(
+            project=project_name, entity=entity, name=run_name, file_limit=max_int
+        )["project"]["run"]["files"]["edges"]
+        h = c.run_full_history(
+            project=project_name, entity=entity, name=run_name, samples=max_int
+        )["project"]["run"]["history"]
+    except Exception as e:
+        print("Error fetching run files or history:", e)
+        return None
+
+    r = c.run(project_name=project_name, entity_name=entity, run_name=run_name)[
+        "project"
+    ]["run"]
+    settings, config, name = get_settings(auth, c, r)
+
+    op = mlop.init(
+        dir=tmp,
+        project=project_name,
+        name=name,
+        config=config,
+        settings=settings,
+    )
+    try:
+        for d in h:
+            d = json.loads(d)  # TODO: cleanup before parsing
+            step = int(d["_step"])
+            timestamp = float(d["_timestamp"])
+            for k, v in d.items():
+                if not k.startswith("_"):
+                    e = None
+                    if isinstance(v, dict):  # non-metrics
+                        e = parse_type(c, f, v, entity, project_name, run_name)
+                    elif isinstance(v, (int, float)):
+                        e = v
+                    op._log(data={k: e}, step=step, t=timestamp) if e else None
+        op.finish()
+        return True
+    except Exception as e:
+        print(e)
+        op.finish()
+        return None
