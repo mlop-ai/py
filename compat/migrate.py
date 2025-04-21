@@ -63,19 +63,29 @@ def download_file(file, url=None):
     return None
 
 
-def get_file_url(f, name):
+def get_file_url(c, f, name, entity, project_name, run_name):
     for e in f:
         if e["node"]["name"] == name:
             return e["node"]["directUrl"]
+    # print("File not found in cached list:", name)
+    try:
+        url = c.direct_url_query(
+            project_name=project_name, entity_name=entity, run_name=run_name, filenames=[f"{name}"]
+        )['project']['run']['files']['edges'][0]['node']['directUrl']
+        if url:
+            return url
+    except Exception as e:
+        print(e)
+    print("File not found:", name)        
     return None
 
 
-def parse_type(f, v):
+def parse_type(c, f, v, entity, project_name, run_name):
     type = v.get("_type")
     if type:
         if type == "image-file":
             path = v.get("path")
-            url = get_file_url(f, name=path)
+            url = get_file_url(c, f, name=path, entity=entity, project_name=project_name, run_name=run_name)
             local = download_file(f"{tmp}/{path}", url)
             if local:
                 e = mlop.Image(data=local, caption=v.get("caption"))
@@ -83,32 +93,45 @@ def parse_type(f, v):
             e = []
             for i in range(len(v.get("filenames"))):
                 path = v.get("filenames")[i]
-                url = get_file_url(f, name=path)
+                url = get_file_url(c,f, name=path, entity=entity, project_name=project_name, run_name=run_name)
                 local = download_file(f"{tmp}/{path}", url)
                 if local:
                     e.append(mlop.Image(data=local, caption=v.get("captions")[i]))
         elif type == "audio-file":
             path = v.get("path")
-            url = get_file_url(f, name=path)
+            url = get_file_url(c,f, name=path, entity=entity, project_name=project_name, run_name=run_name)
             local = download_file(f"{tmp}/{path}", url)
             if local:
                 e = mlop.Audio(data=local, caption=v.get("caption"))
         elif type == "audio":
             e = []
             for i in range(len(v.get("audio"))):
-                e.append(parse_type(f, v.get("audio")[i]))
+                e.append(parse_type(c, f, v.get("audio")[i], entity, project_name, run_name))
         elif type == "video-file":
             path = v.get("path")
-            url = get_file_url(f, name=path)
+            url = get_file_url(c, f, name=path, entity=entity, project_name=project_name, run_name=run_name)
             local = download_file(f"{tmp}/{path}", url)
             if local:
                 e = mlop.Video(data=local, caption=v.get("caption"))
         elif type == "videos":
             e = []
             for i in range(len(v.get("videos"))):
-                e.append(parse_type(f, v.get("videos")[i]))
+                e.append(parse_type(c, f, v.get("videos")[i], entity, project_name, run_name))
+        elif type == "histogram":
+            return None
+            if v.get("packedBins"):
+                bins = v.get("packedBins")
+                bins = [ bins["min"] + bins["size"] * i for i in range(bins["count"]) ]
+            else:
+                bins = v.get("bins")
+            data = [
+                list(v.get("values")),
+                bins,
+            ]
+            e = mlop.Histogram(data=data)
         else:
             print("Unknown type:", v)
+            return None
         return e
     else:
         return None
@@ -179,7 +202,7 @@ def migrate_run_v0(auth, c, entity, project_name, run_name):
                 if not k.startswith("_"):
                     e = None
                     if isinstance(v, dict):  # non-metrics
-                        e = parse_type(f, v)
+                        e = parse_type(c, f, v, entity, project_name, run_name)
                     elif isinstance(v, (int, float)):
                         e = v
                     op._log(data={k: e}, step=step, t=timestamp) if e else None
@@ -250,7 +273,7 @@ def migrate_run_v1(auth, c, entity, project_name, run_name):
                     if not k.startswith("_"):
                         e = None
                         if isinstance(v, dict):  # non-metrics
-                            e = parse_type(f, v)
+                            e = parse_type(c, f, v, entity, project_name, run_name)
                         elif isinstance(v, (int, float)):
                             e = v
                         op._log(data={k: e}, step=step, t=timestamp) if e else None

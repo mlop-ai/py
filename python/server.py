@@ -7,7 +7,7 @@ from python.temp import process_run_email
 from python.utils import get_run_url
 
 
-def process_runs(session, ch_client, smtp_config, grace=16):
+def process_runs(session, ch_client, smtp_config, grace=60):
     now_utc = datetime.now(timezone.utc)
     runs = session.query(Run).filter(Run.status == "RUNNING").all()
     print(f"Processing {len(runs)} runs")
@@ -81,7 +81,7 @@ def process_runs(session, ch_client, smtp_config, grace=16):
                         last_metric_time=datetime.utcnow().strftime(
                             "%Y-%m-%d %H:%M:%S"
                         ),
-                        time_diff_seconds=int(timedelta(seconds=16).total_seconds()),
+                        time_diff_seconds=int(timedelta(datetime.now(timezone.utc) - last_metric_time).total_seconds()),
                         run_url=get_run_url(
                             host=smtp_config["app_host"],
                             organization=run.organization.slug,
