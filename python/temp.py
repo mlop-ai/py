@@ -1,7 +1,7 @@
 def process_run_email(
     run_name: str,
     project_name: str,
-    last_metric_time: str,
+    last_update_time: str,
     time_diff_seconds: int,
     run_url: str,
     reason: str,
@@ -73,7 +73,7 @@ def process_run_email(
         <div class="details">
             <p><strong>Run:</strong> {run_name}</p>
             <p><strong>Project:</strong> {project_name}</p>
-            <p><strong>Last Seen (UTC):</strong> {last_metric_time}</p>
+            <p><strong>Last Seen (UTC):</strong> {last_update_time}</p>
             <p><strong>Estimated Time Since Last Update:</strong> {time_diff_seconds} seconds</p>
             <p><strong>Reason:</strong> {reason}</p>
         </div>

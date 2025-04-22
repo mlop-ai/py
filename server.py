@@ -1,17 +1,22 @@
 import os
 from datetime import datetime, timezone
+from typing import Union
 
 from dotenv import load_dotenv
-from fastapi import Body, Depends, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, Header, HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from compat.migrate import get_client, list_runs, migrate_all, migrate_run_v1
+from python.env import get_database_url, get_smtp_config
 from python.models import Run, RunStatus, RunTriggers, RunTriggerType
+from python.server import check_run, send_alert
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_DIRECT_URL")
+SMTP_CONFIG = get_smtp_config()
+DATABASE_URL = get_database_url()
+
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 
@@ -29,25 +34,22 @@ def get_db():
         db.close()
 
 
-# TODO: add auth
-
-
-@app.post("/api/runs/triggers")
+@app.post("/api/runs/trigger")
 async def get_run_triggers(
-    runId: int = Body(..., embed=True), db: Session = Depends(get_db)
+    runId: int = Body(..., embed=True),
+    session: Session = Depends(get_db),
+    authorization: str = Header(None),
 ):
-    run = db.query(Run).filter(Run.id == runId).first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+    run = check_run(session, runId, authorization)
 
     if not run.status == RunStatus.CANCELLED:
-        triggers = db.query(RunTriggers).filter(RunTriggers.runId == runId).all()
+        triggers = session.query(RunTriggers).filter(RunTriggers.runId == runId).all()
         for trigger in triggers:
             if trigger.triggerType == RunTriggerType.CANCEL:
                 run.status = RunStatus.CANCELLED
                 run.statusUpdated = datetime.now(timezone.utc)
-                db.commit()
-                db.refresh(run)
+                session.commit()
+                session.refresh(run)
 
     return {
         "status": run.status,
@@ -60,6 +62,43 @@ async def get_run_triggers(
         if (False and triggers is not None)
         else None,
     }
+
+
+@app.post("/api/runs/alert")
+async def set_run_alerts(
+    runId: int = Body(..., embed=True),
+    alert: dict[str, Union[str, int, bool, None]] = Body(..., embed=True),
+    session: Session = Depends(get_db),
+    authorization: str = Header(None),
+):
+    run = check_run(session, runId, authorization)
+
+    if not isinstance(alert, dict):  # TODO: add more checks
+        raise HTTPException(status_code=400, detail="Invalid alert")
+
+    try:
+        send_alert(
+            session,
+            run,
+            SMTP_CONFIG,
+            last_update_time=datetime.fromtimestamp(
+                alert.get("timestamp") / 1000, tz=timezone.utc
+            )
+            if alert.get("timestamp")
+            else datetime.now(timezone.utc),
+            title=alert.get("title", "Status Update"),
+            body=alert.get("body", "alert"),
+            level=alert.get("level", "INFO"),
+            email=alert.get("email", True),
+        )
+
+        if alert.get("url"):
+            # TODO: add webhook support
+            raise HTTPException(status_code=302, detail=alert.get("url"))
+        else:
+            return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send alert: {e}")
 
 
 @app.post("/api/compat/w/viewer")  # TODO: protect

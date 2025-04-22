@@ -7,25 +7,18 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from python.env import get_database_url, get_smtp_config
 from python.server import process_runs
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_DIRECT_URL")
+SMTP_CONFIG = get_smtp_config()
+DATABASE_URL = get_database_url()
 CH_URL = os.getenv("CLICKHOUSE_URL", "url")
 CH_USER = os.getenv("CLICKHOUSE_USER", "user")
 CH_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "password")
-SMTP_CONFIG = {
-    "server": os.getenv("SMTP_SERVER"),
-    "port": os.getenv("SMTP_PORT"),
-    "username": os.getenv("SMTP_USERNAME"),
-    "password": os.getenv("SMTP_PASSWORD"),
-    "from_address": os.getenv("SMTP_FROM_ADDRESS"),
-    "app_host": os.getenv("APP_HOST"),
-}
-
-CH_HOST = CH_URL.split("https://")[1].split(":")[0]
-CH_PORT = CH_URL.split("https://")[1].split(":")[1]
+CH_HOST = CH_URL.split("://")[1].split(":")[0]
+CH_PORT = CH_URL.split("://")[1].split(":")[1]
 
 
 def start():

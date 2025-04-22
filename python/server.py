@@ -1,6 +1,16 @@
 from datetime import datetime, timedelta, timezone
 
-from python.models import Member, Notification, Organization, Run, RunStatus, User
+from fastapi import HTTPException
+
+from python.models import (
+    ApiKey,
+    Member,
+    Notification,
+    Organization,
+    Run,
+    RunStatus,
+    User,
+)
 from python.send import send_email
 from python.sqid import sqid_encode
 from python.temp import process_run_email
@@ -56,7 +66,7 @@ def check_threshold(
     project_name = run.project.name
 
     ch_query = f"""
-        SELECT time AS last_metric_time, value
+        SELECT time AS last_update_time, value
         FROM mlop_metrics
         WHERE projectName = %(projectName)s
             AND runId = %(runId)s
@@ -85,56 +95,34 @@ def check_threshold(
         print(f"No threshold violation found for run {run.id} on {log_name}.")
         return None
 
-    last_metric_time = result.result_rows[0][0]
+    last_update_time = result.result_rows[0][0]
     violation_value = result.result_rows[0][1]
 
-    if isinstance(last_metric_time, str):
+    if isinstance(last_update_time, str):
         try:
-            last_metric_time = datetime.fromisoformat(last_metric_time)
+            last_update_time = datetime.fromisoformat(last_update_time)
         except ValueError as e:
             print(f"Error parsing metric time for run {run.id}: {e}")
             return None
 
-    if last_metric_time.tzinfo is None:
-        last_metric_time = last_metric_time.replace(tzinfo=timezone.utc)
+    if last_update_time.tzinfo is None:
+        last_update_time = last_update_time.replace(tzinfo=timezone.utc)
 
     print(
-        f"Run {run.id} (Project: {project_name}) {log_name} value {violation_value} {operator} {threshold} at {last_metric_time}."
+        f"Run {run.id} (Project: {project_name}) {log_name} value {violation_value} {operator} {threshold} at {last_update_time}."
     )
 
     run.status = RunStatus.CANCELLED  # run.status = "FAILED"
-    session.add(
-        Notification(
-            runId=run.id,
-            organizationId=run.organizationId,
-            type="RUN_FAILED",
-            content=f"Reason: {log_name} value {violation_value} {operator} {threshold}",
-        )
+    send_alert(
+        session,
+        run,
+        smtp_config,
+        last_update_time,
+        f"Threshold Exceeded on {log_name}",
+        f"Threshold exceeded for {log_name}: {violation_value} {operator} {threshold}",
+        "RUN_FAILED",
+        email=True,
     )
-
-    for e in get_emails(session, run.organizationId):
-        send_email(
-            smtp_config,
-            from_address=smtp_config["from_address"],
-            to_address=e,
-            subject=f"mlop: threshold on {log_name} exceeded for run {run.name} in {project_name}",
-            body=process_run_email(
-                run_name=run.name,
-                project_name=project_name,
-                last_metric_time=last_metric_time.strftime("%Y-%m-%d %H:%M:%S"),
-                time_diff_seconds=int(
-                    (datetime.now(timezone.utc) - last_metric_time).total_seconds()
-                ),
-                run_url=get_run_url(
-                    host=smtp_config["app_host"],
-                    organization=run.organization.slug,
-                    project=project_name,
-                    run_id=run.id,
-                ),
-                reason=f"Threshold exceeded for {log_name}: {violation_value} {operator} {threshold}.",
-            ),
-            html=True,
-        )
 
     return True
 
@@ -144,7 +132,7 @@ def check_run_time(session, ch_client, smtp_config, run, grace=60):
     project_name = run.project.name
 
     ch_query = """
-        SELECT MAX(time) AS last_metric_time
+        SELECT MAX(time) AS last_update_time
         FROM mlop_metrics
         WHERE projectName = %(projectName)s
             AND runId = %(runId)s
@@ -165,63 +153,105 @@ def check_run_time(session, ch_client, smtp_config, run, grace=60):
         print(f"No metric data for run {run.id}.")
         return None
 
-    last_metric_time = result.result_rows[0][0]
-    if isinstance(last_metric_time, str):
+    last_update_time = result.result_rows[0][0]
+    if isinstance(last_update_time, str):
         try:
-            last_metric_time = datetime.fromisoformat(last_metric_time)
+            last_update_time = datetime.fromisoformat(last_update_time)
         except ValueError as e:
-            print(f"Error parsing metric time for run {run.id}: {e}")
+            print(f"Error parsing update time for run {run.id}: {e}")
             return None
-    if last_metric_time.tzinfo is None:
-        last_metric_time = last_metric_time.replace(tzinfo=timezone.utc)
+    if last_update_time.tzinfo is None:
+        last_update_time = last_update_time.replace(tzinfo=timezone.utc)
 
     # for runs with no metrics, use updatedAt time
-    if last_metric_time == datetime.fromtimestamp(0, timezone.utc) and timedelta(
+    if last_update_time == datetime.fromtimestamp(0, timezone.utc) and timedelta(
         seconds=grace
     ) < now_utc - run.updatedAt.replace(tzinfo=timezone.utc):
-        last_metric_time = run.updatedAt.replace(tzinfo=timezone.utc)
+        last_update_time = run.updatedAt.replace(tzinfo=timezone.utc)
 
-    time_diff = now_utc - last_metric_time
+    time_diff = now_utc - last_update_time
     if timedelta(seconds=grace) < time_diff < timedelta(days=16384):
         print(
-            f"Run {run.id} (Project: {project_name}) last metric at {last_metric_time} is older than {grace} seconds."
+            f"Run {run.id} (Project: {project_name}) last update at {last_update_time} is older than {grace} seconds."
         )
         run.status = "FAILED"
-        session.add(
-            Notification(
-                runId=run.id,
-                organizationId=run.organizationId,
-                type="RUN_FAILED",
-                content=f"Reason: last update exceeded {grace} seconds",
-            )
+        send_alert(
+            session,
+            run,
+            smtp_config,
+            last_update_time,
+            title="Status Update",
+            body=f"The run may have stalled and requires attention - last update exceeded {grace} seconds",
+            level="RUN_FAILED",
+            email=False,
         )
+    else:
+        print(
+            f"Run {run.id} (Project: {project_name}) is active. Last update at {last_update_time}."
+        )
+    return True
+
+
+def send_alert(
+    session, run, smtp_config, last_update_time, title, body, level="INFO", email=True
+):
+    session.add(
+        Notification(
+            runId=run.id,
+            organizationId=run.organizationId,
+            type=level,
+            content=f"{title}: {body}",
+        )
+    )
+    if email:
         for e in get_emails(session, run.organizationId):
             send_email(
                 smtp_config,
                 from_address=smtp_config["from_address"],
                 to_address=e,
-                subject="mlop: status update",
+                subject=f"mlop: {title} for Run {run.name}",
                 body=process_run_email(
                     run_name=run.name,
-                    project_name=project_name,
-                    last_metric_time=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                    project_name=run.project.name,
+                    last_update_time=last_update_time.strftime("%Y-%m-%d %H:%M:%S"),
                     time_diff_seconds=int(
-                        timedelta(
-                            datetime.now(timezone.utc) - last_metric_time
-                        ).total_seconds()
+                        (datetime.now(timezone.utc) - last_update_time).total_seconds()
                     ),
                     run_url=get_run_url(
                         host=smtp_config["app_host"],
                         organization=run.organization.slug,
-                        project=project_name,
+                        project=run.project.name,
                         run_id=run.id,
                     ),
-                    reason="The run may have stalled and requires attention.",
+                    reason=body,
                 ),
                 html=True,
             )
-    else:
-        print(
-            f"Run {run.id} (Project: {project_name}) is active. Last metric at {last_metric_time}."
-        )
-    return True
+
+
+def check_api_key(session, run, api_key):
+    organization_id = run.organizationId
+    api_key_record = session.query(ApiKey).filter(ApiKey.key == api_key).first()
+    if not api_key_record:
+        print(f"API key not found for the run {run.id}")
+        return False
+
+    if api_key_record.organizationId == organization_id:
+        api_key_record.lastUsed = datetime.now(timezone.utc)
+        session.commit()
+        return True
+
+    print(
+        f"User supplied API key does not belong to the organization that initiated run {run.id}"
+    )
+    return False
+
+
+def check_run(session, runId, authorization):
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    api_key = authorization.replace("Bearer ", "")
+    run = session.query(Run).filter(Run.id == runId).first()
+    if not run or not check_api_key(session, run, api_key):
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run

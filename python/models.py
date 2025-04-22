@@ -177,3 +177,24 @@ class RunGraphEdge(Base):
             f"<RunGraphEdge(id={self.id}, runId={self.runId}, "
             f"sourceId={self.sourceId}, targetId={self.targetId})>"
         )
+
+
+class ApiKey(Base):
+    __tablename__ = "api_key"
+    
+    id = Column(String, primary_key=True)
+    key = Column(String, unique=True)
+    name = Column(String)
+    keyString = Column(String, default="*********")
+    organizationId = Column(String, ForeignKey("organization.id"))
+    userId = Column(String, ForeignKey("user.id"))
+    createdAt = Column(DateTime)
+    isHashed = Column(Boolean, default=True)
+    lastUsed = Column(DateTime, nullable=True)
+    expiresAt = Column(DateTime, nullable=True)
+    
+    organization = relationship("Organization", backref="api_keys")
+    user = relationship("User", backref="api_keys")
+    
+    def __repr__(self):
+        return f"<ApiKey(id={self.id}, name={self.name}, organizationId={self.organizationId})>"
