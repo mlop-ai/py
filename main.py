@@ -17,11 +17,18 @@ DATABASE_URL = get_database_url()
 CH_URL = os.getenv("CLICKHOUSE_URL", "url")
 CH_USER = os.getenv("CLICKHOUSE_USER", "user")
 CH_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "password")
-CH_HOST = CH_URL.split("://")[1].split(":")[0]
-CH_PORT = CH_URL.split("://")[1].split(":")[1]
+try:
+    CH_HOST = CH_URL.split("://")[1].split(":")[0]
+    CH_PORT = CH_URL.split("://")[1].split(":")[1]
+except Exception as e:
+    print(f"Error parsing CH_URL: {e}")
+    sys.exit(1)
 
 
 def start():
+    if not DATABASE_URL:
+        print("DATABASE_URL is not set")
+        sys.exit(1)
     engine = create_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False}
