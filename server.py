@@ -16,7 +16,7 @@ load_dotenv()
 
 SMTP_CONFIG = get_smtp_config()
 DATABASE_URL = get_database_url()
-
+DOMAIN = os.getenv("W_DOMAIN", "localhost")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 
@@ -103,7 +103,7 @@ async def set_run_alerts(
 
 @app.post("/api/compat/w/viewer")  # TODO: protect
 async def _viewer(key: str = Body(..., embed=True)):
-    c = get_client(key)
+    c = get_client(key, DOMAIN)
     return c.viewer()
 
 
@@ -113,7 +113,7 @@ async def _list_runs(
     key: str = Body(..., embed=True),
     entity: str = Body(..., embed=True),
 ):
-    c = get_client(key)
+    c = get_client(key, DOMAIN)
     return list_runs(c, entity)
 
 
@@ -123,7 +123,7 @@ async def _migrate_all(
     key: str = Body(..., embed=True),
     entity: str = Body(..., embed=True),
 ):
-    if migrate_all(auth, key, entity):
+    if migrate_all(auth, key, entity, DOMAIN):
         return {"status": "success"}
     else:
         raise HTTPException(status_code=500, detail="Failed to migrate runs")
@@ -137,7 +137,7 @@ async def _migrate_run(
     project: str = Body(..., embed=True),
     run: str = Body(..., embed=True),
 ):
-    c = get_client(key)
+    c = get_client(key, DOMAIN)
     if migrate_run_v1(auth, c, entity, project, run):
         return {"status": "success"}
     else:

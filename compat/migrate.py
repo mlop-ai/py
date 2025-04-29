@@ -20,16 +20,17 @@ max_int = 2**31 - 1
 tmp = ".tmp"
 
 
-def get_client(key, **kwargs):
+
+def get_client(key, domain=None, **kwargs):
     transport = RequestsHTTPTransport(
-        url=f"https://api.{os.getenv('W_DOMAIN')}/graphql",
+        url=f"https://api.{domain}/graphql",
         auth=HTTPBasicAuth("api", key),
         headers={
-            "Host": f"api.{os.getenv('W_DOMAIN')}",
+            "Host": f"api.{domain}",
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
             "Use-Admin-Privileges": "true",  # custom
-            "Origin": f"https://{os.getenv('W_DOMAIN')}",
+            "Origin": f"https://{domain}",
             "Accept": "*/*",
             # **auth,
         },
@@ -207,7 +208,7 @@ def get_sys(sys, op):
         for k, v in line.items():
             if not k.startswith("_") and isinstance(v, (int, float)):
                 op._log(
-                    data={k.replace("system", "sys").replace(".", "/"): v},
+                    data={k.replace("system", "sys"): v},
                     step=step,
                     t=timestamp,
                 )
@@ -292,18 +293,18 @@ def migrate_run_v1(auth, c, entity, project_name, run_name):
         return None
 
 
-def migrate_all(auth, key, entity):
-    c = get_client(key)
+def migrate_all(auth, key, entity, domain=None):
+    c = get_client(key, domain)
     try:
         projects = c.projects(entity=entity, per_page=max_int)["models"]["edges"]
         for p in projects:
             project_name = p["node"]["name"]
-        runs = c.runs(project=project_name, entity=entity)["project"]["runs"]["edges"]
-        for r in runs:
-            run_name = r["node"]["name"]
-            migrate_run_v1(auth, c, entity, project_name, run_name)
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
+            runs = c.runs(project=project_name, entity=entity)["project"]["runs"]["edges"]
+            for r in runs:
+                run_name = r["node"]["name"]
+                migrate_run_v1(auth, c, entity, project_name, run_name)
+                if os.path.exists(tmp):
+                    shutil.rmtree(tmp)
         return True
     except Exception as e:
         print("Error migrating:", e)
@@ -315,7 +316,7 @@ if __name__ == "__main__":
     auth = input("Enter mlop auth: ")
     key = input("Enter w api key: ")
     entity = input("Enter w entity: ")
-    migrate_all(auth, key, entity)
+    migrate_all(auth, key, entity, os.getenv("W_DOMAIN"))
 
 
 
