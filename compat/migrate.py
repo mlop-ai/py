@@ -1,5 +1,3 @@
-
-
 import base64
 import datetime
 import json
@@ -24,14 +22,14 @@ tmp = ".tmp"
 
 def get_client(key, **kwargs):
     transport = RequestsHTTPTransport(
-        url="https://localhost/graphql",
+        url=f"https://api.{os.getenv('W_DOMAIN')}/graphql",
         auth=HTTPBasicAuth("api", key),
         headers={
-            "Host": "localhost",
+            "Host": f"api.{os.getenv('W_DOMAIN')}",
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
             "Use-Admin-Privileges": "true",  # custom
-            "Origin": "https://localhost",
+            "Origin": f"https://{os.getenv('W_DOMAIN')}",
             "Accept": "*/*",
             # **auth,
         },
