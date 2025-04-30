@@ -16,6 +16,7 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 
+
 class RunTriggerType(enum.Enum):
     CANCEL = "CANCEL"
 
@@ -197,4 +198,4 @@ class ApiKey(Base):
     user = relationship("User", backref="api_keys")
     
     def __repr__(self):
-        return f"<ApiKey(id={self.id}, name={self.name}, organizationId={self.organizationId})>"
+        return f"<ApiKey(id={self.id}, key={self.key}, name={self.name}, organizationId={self.organizationId})>"

@@ -1,6 +1,8 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
 from python.models import (
     ApiKey,
@@ -17,7 +19,7 @@ from python.temp import process_run_email
 from python.utils import get_run_url
 
 
-def process_runs(session, ch_client, smtp_config, grace=60):
+def process_runs(session, ch_client, smtp_config, grace=120):
     runs = session.query(Run).filter(Run.status == "RUNNING").all()
     print(f"Processing {len(runs)} runs")
     for run in runs:
@@ -127,7 +129,7 @@ def check_threshold(
     return True
 
 
-def check_run_time(session, ch_client, smtp_config, run, grace=60):
+def check_run_time(session, ch_client, smtp_config, run, grace):
     now_utc = datetime.now(timezone.utc)
     project_name = run.project.name
 
@@ -229,29 +231,58 @@ def send_alert(
             )
 
 
-def check_api_key(session, run, api_key):
-    organization_id = run.organizationId
-    api_key_record = session.query(ApiKey).filter(ApiKey.key == api_key).first()
-    if not api_key_record:
-        print(f"API key not found for the run {run.id}")
+def check_api_key(session: Session, raw_api_key: str):
+    hashed_key = hash_api_key(raw_api_key)
+    if not hashed_key:
+        print("Invalid API key format")
         return False
 
-    if api_key_record.organizationId == organization_id:
-        api_key_record.lastUsed = datetime.now(timezone.utc)
-        session.commit()
-        return True
+    api_key_record = session.query(ApiKey).filter(ApiKey.key == hashed_key).first()
+    if not api_key_record:
+        print("API key not found")
+        return False
 
-    print(
-        f"User supplied API key does not belong to the organization that initiated run {run.id}"
-    )
-    return False
+    if api_key_record.expiresAt and api_key_record.expiresAt < datetime.now(
+        timezone.utc
+    ):
+        print(f"API key {api_key_record.id} has expired.")
+        return False
+
+    # api_key_record.lastUsed = datetime.now(timezone.utc)
+    return api_key_record
+
+
+def hash_api_key(api_key):
+    if isinstance(api_key, str):
+        if api_key.startswith("mlpi_"):
+            return api_key
+        return hashlib.sha256(api_key.encode()).hexdigest()
+    else:
+        return None
 
 
 def check_run(session, runId, authorization):
     if authorization is None or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    api_key = authorization.replace("Bearer ", "")
-    run = session.query(Run).filter(Run.id == runId).first()
-    if not run or not check_api_key(session, run, api_key):
+        raise HTTPException(
+            status_code=401, detail="Authorization header missing or invalid"
+        )
+
+    raw_api_key = authorization.replace("Bearer ", "")
+    if not raw_api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key format")
+
+    api_key_record = check_api_key(session, raw_api_key)
+    if not api_key_record:
+        raise HTTPException(
+            status_code=401, detail="Invalid or expired API key for this run"
+        )
+
+    run = (
+        session.query(Run)
+        .filter(Run.id == runId, Run.organizationId == api_key_record.organizationId)
+        .first()
+    )
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+
     return run
