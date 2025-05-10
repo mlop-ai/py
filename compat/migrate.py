@@ -1,6 +1,7 @@
 import base64
 import datetime
 import json
+import logging
 import os
 import shutil
 import uuid
@@ -10,6 +11,7 @@ import requests
 import urllib3
 from gql import Client, gql
 from gql.transport.requests import RequestsHTTPTransport
+from mlop.api import make_compat_message_v1
 from requests.auth import HTTPBasicAuth
 
 from .w import _WClient
@@ -18,7 +20,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 max_int = 2**31 - 1
 tmp = ".tmp"
-
 
 
 def get_client(key, domain=None, **kwargs):
@@ -34,7 +35,7 @@ def get_client(key, domain=None, **kwargs):
             "Accept": "*/*",
             # **auth,
         },
-        # **kwargs
+        **kwargs,
     )
     client = Client(transport=transport)
     return _WClient(client)
@@ -200,6 +201,20 @@ def get_settings(auth, c, r):
     return settings, config, r["displayName"]
 
 
+def get_logs(logs, op):
+    for e in logs:
+        op.settings.message.put(
+            make_compat_message_v1(
+                logging._nameToLevel[e["node"]["level"].upper()],
+                e["node"]["line"],
+                datetime.datetime.strptime(
+                    e["node"]["timestamp"], "%Y-%m-%dT%H:%M:%S.%f"
+                ).timestamp(),
+                int(e["node"]["id"]),
+            )
+        )
+
+
 def get_sys(sys, op):
     for i in range(len(sys)):
         line = json.loads(sys[i])
@@ -208,14 +223,14 @@ def get_sys(sys, op):
         for k, v in line.items():
             if not k.startswith("_") and isinstance(v, (int, float)):
                 op._log(
-                    data={k.replace("system", "sys"): v},
+                    data={k.replace("system.", "sys/"): v},
                     step=step,
                     t=timestamp,
                 )
 
 
 def migrate_run_v1(auth, c, entity, project_name, run_name):
-    print("Migrating:", entity, project_name, run_name)
+    print(f"Migrating {entity}/{project_name}/{run_name}...")
 
     # TODO: remove max_int dependency
     try:
@@ -243,36 +258,7 @@ def migrate_run_v1(auth, c, entity, project_name, run_name):
         settings=settings,
     )
 
-    hkeys = list(r["historyKeys"]["keys"].keys())
-    state = c.run_state_delta_query(
-        project_name=project_name,
-        entity_name=entity,
-        filters=json.dumps({"name": run_name}),
-        sampled_history_specs=[
-            json.dumps(
-                {
-                    "keys": ["_step", "_timestamp", e],
-                    "samples": max_int,
-                }
-            )
-            for e in hkeys
-        ],
-        enable_history_key_info=False,
-        enable_sampled_history=True,
-        enable_system_metrics=True,
-        limit=max_int,
-    )
-    h = state["project"]["runs"]["delta"][0]["run"]["sampledHistory"]
-
-    try:
-        get_sys(
-            sys=c.run_system_metrics(
-                project_name=project_name,
-                entity_name=entity,
-                run_name=run_name,
-            )["project"]["run"]["events"],
-            op=op,
-        )
+    def get_history(h, op):
         for i in h:
             for d in i:
                 step = d["_step"]
@@ -285,6 +271,51 @@ def migrate_run_v1(auth, c, entity, project_name, run_name):
                         elif isinstance(v, (int, float)):
                             e = v
                         op._log(data={k: e}, step=step, t=timestamp) if e else None
+
+    try:
+        get_sys(
+            sys=c.run_system_metrics(
+                project_name=project_name,
+                entity_name=entity,
+                run_name=run_name,
+            )["project"]["run"]["events"],
+            op=op,
+        )
+        get_logs(
+            logs=c.run_log_lines(
+                project_name=project_name,
+                entity_name=entity,
+                run_name=run_name,
+            )["project"]["run"]["logLines"]["edges"],
+            op=op,
+        )
+        for i in range(0, len(hkeys), 4):
+            batch_hkeys = hkeys[i : i + 4]
+            if not batch_hkeys:
+                continue
+            state = c.run_state_delta_query(
+                project_name=project_name,
+                entity_name=entity,
+                filters=json.dumps({"name": run_name}),
+                sampled_history_specs=[
+                    json.dumps(
+                        {
+                            "keys": ["_step", "_timestamp", e],
+                            "samples": max_int,
+                        }
+                    )
+                    for e in batch_hkeys
+                ],
+                enable_history_key_info=False,
+                enable_sampled_history=True,
+                enable_system_metrics=False,
+                limit=max_int,
+            )
+            batch_history_data = state["project"]["runs"]["delta"][0]["run"][
+                "sampledHistory"
+            ]
+            get_history(batch_history_data, op)
+
         op.finish()
         return True
     except Exception as e:
@@ -299,7 +330,9 @@ def migrate_all(auth, key, entity, domain=None):
         projects = c.projects(entity=entity, per_page=max_int)["models"]["edges"]
         for p in projects:
             project_name = p["node"]["name"]
-            runs = c.runs(project=project_name, entity=entity)["project"]["runs"]["edges"]
+            runs = c.runs(project=project_name, entity=entity)["project"]["runs"][
+                "edges"
+            ]
             for r in runs:
                 run_name = r["node"]["name"]
                 migrate_run_v1(auth, c, entity, project_name, run_name)
@@ -311,7 +344,6 @@ def migrate_all(auth, key, entity, domain=None):
         return None
 
 
-
 if __name__ == "__main__":
     auth = input("Enter mlop auth: ")
     key = input("Enter w api key: ")
@@ -319,9 +351,8 @@ if __name__ == "__main__":
     migrate_all(auth, key, entity, os.getenv("W_DOMAIN"))
 
 
-
-
 ### DEPRECATED
+
 
 def migrate_run_v0(auth, c, entity, project_name, run_name):
     print("Migrating:", entity, project_name, run_name)
