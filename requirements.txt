@@ -1,5 +1,6 @@
 clickhouse_connect
 dotenv
+docker
 fastapi
 psycopg2-binary
 sqids
