@@ -5,25 +5,13 @@ FROM scratch AS packages
 COPY code-server*.deb /tmp/
 
 FROM $BASE
+# RUN sed -i -e 's/^Components: main$/Components: main contrib non-free non-free-firmware/g' /etc/apt/sources.list.d/debian.sources
 RUN apt-get update \
   && apt-get install -y \
-    curl \
-    dumb-init \
-    git \
-    git-lfs \
-    htop \
-    locales \
-    lsb-release \
-    man-db \
-    nano \
-    openssh-client \
-    procps \
-    sudo \
-    vim-tiny \
-    wget \
-    zsh \
+    curl dumb-init git git-lfs htop locales lsb-release man-db nano openssh-client procps wget zsh \
   && git lfs install \
   && rm -rf /var/lib/apt/lists/*
+# RUN apt-get install -y sudo nvidia-smi nvidia-driver nvidia-cuda-toolkit
 
 RUN sed -i "s/# en_US.UTF-8/en_US.UTF-8/" /etc/locale.gen \
   && locale-gen
@@ -43,10 +31,27 @@ RUN ARCH="$(dpkg --print-architecture)" \
 COPY entrypoint.sh /usr/bin/entrypoint.sh
 RUN --mount=from=packages,src=/tmp,dst=/tmp/packages dpkg -i /tmp/packages/code-server*$(dpkg --print-architecture).deb
 
-ENV ENTRYPOINTD=${HOME}/entrypoint.d
+COPY settings.json /home/mlop/.local/share/code-server/User/settings.json
+RUN chown -R mlop:mlop /home/mlop/
 
+ENV ENTRYPOINTD=${HOME}/entrypoint.d
 EXPOSE 8080
 USER 1000
 ENV USER=mlop
 WORKDIR /home/mlop
+
+RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" \
+  && bash Miniforge3-$(uname)-$(uname -m).sh -p $HOME/conda -b -f \
+  && rm Miniforge3-$(uname)-$(uname -m).sh \
+  && $HOME/conda/bin/conda init bash \
+  && $HOME/conda/bin/mamba install -y uv rust
+RUN bash -c \
+  "eval $($HOME/conda/bin/conda shell.bash hook 2> /dev/null) && \
+  $HOME/conda/bin/uv pip install -U mlop ipykernel torch torchvision transformers"
+RUN code-server --install-extension ms-python.python \
+  && code-server --install-extension ms-toolsai.jupyter \
+  && code-server --install-extension ms-vscode.vscode-typescript-next \
+  && code-server --install-extension charliermarsh.ruff \
+  && code-server --install-extension rust-lang.rust-analyzer
+
 ENTRYPOINT ["/usr/bin/entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "."]
