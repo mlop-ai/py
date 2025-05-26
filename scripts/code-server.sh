@@ -20,10 +20,10 @@ sudo sed -i 's/#no-cgroups/no-cgroups/g' /etc/nvidia-container-runtime/config.to
 
 VERSION=$(curl -s https://api.github.com/repos/coder/code-server/releases/latest | grep -Po '"tag_name": "v\K[^"]*')
 wget "https://github.com/coder/code-server/releases/download/v${VERSION}/code-server_${VERSION}_$(dpkg --print-architecture).deb"
-wget "https://github.com/coder/code-server/raw/refs/heads/main/ci/release-image/entrypoint.sh"
-sed -i 's/coder/mlop/g' entrypoint.sh
-chmod +x entrypoint.sh
-cp ../settings.json .
+wget "https://caddyserver.com/api/download?os=linux&arch=$(dpkg --print-architecture)&p=github.com%2Fcaddy-dns%2Fcloudflare" -O caddy; chmod +x caddy
+# wget "https://github.com/coder/code-server/raw/refs/heads/main/ci/release-image/entrypoint.sh"
+# sed -i 's/coder/mlop/g' entrypoint.sh; chmod +x entrypoint.sh
+cp ../settings.json ../entrypoint.sh .
 
 DOCKER_BUILDKIT=1 docker build -t mlop-code-server:latest -f ../Dockerfile .
 # docker container prune -f; docker builder prune -a

@@ -1,0 +1,9 @@
+{$DOMAIN}:{$PORT} {
+        tls {
+                dns cloudflare {$CLOUDFLARE_API_TOKEN}
+        }
+
+        reverse_proxy /* code-{$PORT}:8080 {
+                header_up X-Real-IP {remote_host}
+        }
+}

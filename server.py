@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timezone
 from typing import Union
 
+import docker
 from dotenv import load_dotenv
 from fastapi import Body, Depends, FastAPI, Header, HTTPException
 from sqlalchemy import create_engine
@@ -9,8 +10,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from compat.migrate import get_client, list_runs, migrate_all, migrate_run_v1
 from python.env import get_database_url, get_smtp_config
+from python.docker import start_server, stop_server, stop_all
 from python.models import Run, RunStatus, RunTriggers, RunTriggerType
-from python.server import check_run, send_alert
+from python.server import check_run, send_alert, check_api_key
 
 load_dotenv()
 
@@ -20,6 +22,7 @@ DOMAIN = os.getenv("W_DOMAIN", "localhost")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 
+client = docker.from_env()
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -34,16 +37,63 @@ def get_db():
         db.close()
 
 
+@app.post("/api/docker/start")
+async def start_docker(
+    authorization: str = Header(None),
+    session: Session = Depends(get_db),
+):
+    api_key = check_api_key(session, authorization.replace("Bearer ", ""))
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    port, password, url = start_server(client)
+    return {"port": port, "password": password, "url": url}
+
+
+@app.post("/api/docker/stop")
+async def stop_docker(
+    port: int = Body(..., embed=True),
+    authorization: str = Header(None),
+    session: Session = Depends(get_db),
+):
+    api_key = check_api_key(session, authorization.replace("Bearer ", ""))
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    try:
+        stop_server(client, int(port))
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to stop server: {e}")
+
+
+@app.post("/api/docker/stop-all")
+async def stop_all_docker(
+    authorization: str = Header(None),
+    session: Session = Depends(get_db),
+):
+    api_key = check_api_key(session, authorization.replace("Bearer ", ""))
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    try:
+        stop_all(client)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to stop all servers: {e}")
+
+
 @app.post("/api/runs/trigger")
 async def get_run_triggers(
     runId: int = Body(..., embed=True),
     session: Session = Depends(get_db),
     authorization: str = Header(None),
 ):
-    run = check_run(session, runId, authorization)
+    run = check_api_key(authorization)
 
     if not run.status == RunStatus.CANCELLED:
-        triggers = session.query(RunTriggers).filter(RunTriggers.runId == runId).all()
+        triggers = session.query(RunTriggers).filter(
+            RunTriggers.runId == runId).all()
         for trigger in triggers:
             if trigger.triggerType == RunTriggerType.CANCEL:
                 run.status = RunStatus.CANCELLED
@@ -98,7 +148,8 @@ async def set_run_alerts(
         else:
             return {"status": "success"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send alert: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to send alert: {e}")
 
 
 @app.post("/api/compat/w/viewer")  # TODO: protect
