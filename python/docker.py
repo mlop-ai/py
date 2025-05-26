@@ -5,6 +5,7 @@ import requests
 import subprocess
 import socket
 
+import bcrypt
 import docker
 
 
@@ -23,7 +24,7 @@ def start_server(client: docker.DockerClient, port_range: tuple[int, int] = (200
         gpu=gpu
     )
     print(f"Started code-server at port {port} with password {password}")
-    return port, password, f"{os.getenv('D_DOMAIN', '')}:{port}"
+    return port, password, f"https://mlop:{password}@{os.getenv('D_DOMAIN', '')}:{port}/{password}/"
 
 
 def stop_server(client: docker.DockerClient, port: int):
@@ -92,7 +93,8 @@ def deploy_code(
             network=network_name,
             volumes={os.path.abspath(project_dir): {
                 "bind": "/home/mlop/project", "mode": "rw"}},
-            environment={"PASSWORD": password},
+            command=f"--disable-telemetry --auth none",
+            # environment={"PASSWORD": password},
             # ports={f"8080/tcp": 8080}, tty=True, stdin_open=True,
             **({"device_requests": [
                 docker.types.DeviceRequest(
@@ -114,6 +116,9 @@ def deploy_code(
             },
             environment={
                 "PORT": host_port,
+                "USERNAME": "mlop",
+                "PASSWORD": password,
+                "HASHED_PASSWORD": bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode(),
                 "ACME_AGREE": "true",
                 "DOMAIN": os.getenv("D_DOMAIN", "nope"),
                 "CLOUDFLARE_API_TOKEN": os.getenv("CLOUDFLARE_API_TOKEN", "nope")

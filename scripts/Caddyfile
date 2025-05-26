@@ -1,8 +1,13 @@
-{$DOMAIN}:{$PORT} {
+{$DOMAIN}:{$PORT}/{$PASSWORD}/* {
         tls {
                 dns cloudflare {$CLOUDFLARE_API_TOKEN}
         }
 
+        basic_auth bcrypt {
+                {$USERNAME} {$HASHED_PASSWORD}
+        }
+        
+        uri strip_prefix /{$PASSWORD}
         reverse_proxy /* code-{$PORT}:8080 {
                 header_up X-Real-IP {remote_host}
         }
