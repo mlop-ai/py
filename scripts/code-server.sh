@@ -18,8 +18,19 @@ curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dear
 sudo apt update; sudo apt install -y docker-compose rsync nvidia-detect nvidia-driver nvidia-container-toolkit linux-headers-$(uname -r)
 sudo sed -i 's/#no-cgroups/no-cgroups/g' /etc/nvidia-container-runtime/config.toml
 
-VERSION=$(curl -s https://api.github.com/repos/coder/code-server/releases/latest | grep -Po '"tag_name": "v\K[^"]*')
+export VERSION=$(curl -s https://api.github.com/repos/coder/code-server/releases/latest | grep -Po '"tag_name": "v\K[^"]*')
 wget "https://github.com/coder/code-server/releases/download/v${VERSION}/code-server_${VERSION}_$(dpkg --print-architecture).deb"
+fakeroot sh -c '
+mkdir .work
+dpkg-deb -R code-server_*.deb .work
+rm -rf .work/DEBIAN/conffiles
+wget https://github.com/mlop-ai/mlop/raw/refs/heads/main/design/favicon.ico -O .work/usr/lib/code-server/src/browser/media/favicon.ico
+wget https://github.com/mlop-ai/mlop/raw/refs/heads/main/design/favicon.svg -O .work/usr/lib/code-server/src/browser/media/favicon.svg
+wget https://github.com/microsoft/vscode/raw/refs/heads/main/resources/server/code-192.png -O .work/usr/lib/code-server/src/browser/media/pwa-icon-192.png
+wget https://github.com/microsoft/vscode/raw/refs/heads/main/resources/server/code-512.png -O .work/usr/lib/code-server/src/browser/media/pwa-icon-512.png
+sed -i 's/{{app}}/mlop/g' .work/usr/lib/code-server/out/node/i18n/locales/en.json
+dpkg-deb -b .work code-server_${VERSION}_$(dpkg --print-architecture).deb
+'
 wget "https://caddyserver.com/api/download?os=linux&arch=$(dpkg --print-architecture)&p=github.com%2Fcaddy-dns%2Fcloudflare" -O caddy; chmod +x caddy
 # wget "https://github.com/coder/code-server/raw/refs/heads/main/ci/release-image/entrypoint.sh"
 # sed -i 's/coder/mlop/g' entrypoint.sh; chmod +x entrypoint.sh

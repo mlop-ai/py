@@ -8,23 +8,27 @@ import socket
 import bcrypt
 import docker
 
+from .utils import gen_ed25519
 
 def start_server(client: docker.DockerClient, port_range: tuple[int, int] = (20000, 40000), gpu: bool = True):
     port = random.randint(port_range[0], port_range[1])
     while get_available(port):
         port = random.randint(port_range[0], port_range[1])
 
-    password = uuid.uuid4().hex[:8]
+    password = uuid.uuid4().hex # [:8]
+    private_key, public_key = gen_ed25519()
     deploy_code(
         client=client,
         project_dir=f"/var/tmp/docker-code-{str(port)}",
         host_port=port,
+        ssh_port=port - 1,
         password=password,
         image_name="mlop-code-server:latest",
-        gpu=gpu
+        gpu=gpu,
+        authorized_keys=public_key
     )
     print(f"Started code-server at port {port} with password {password}")
-    return port, password, f"https://mlop:{password}@{os.getenv('D_DOMAIN', '')}:{port}/{password}/"
+    return port, password, f"https://mlop:{password}@{os.getenv('D_DOMAIN', '')}:{port}/{password}/", private_key, port - 1
 
 
 def stop_server(client: docker.DockerClient, port: int):
@@ -73,9 +77,11 @@ def deploy_code(
     client: docker.DockerClient,
     project_dir: str,
     host_port: int = 8080,
+    ssh_port: int = 2222,
     password: str = None,
     image_name: str = "codercom/code-server:latest",
     gpu: bool = True,
+    authorized_keys: str = "",
     cache_dir: str = os.path.abspath(os.getcwd()),
 ) -> dict:
     try:
@@ -91,11 +97,17 @@ def deploy_code(
             detach=True,
             name=f"code-{str(host_port)}",
             network=network_name,
-            volumes={os.path.abspath(project_dir): {
-                "bind": "/home/mlop/project", "mode": "rw"}},
             command=f"--disable-telemetry --auth none",
-            # environment={"PASSWORD": password},
-            # ports={f"8080/tcp": 8080}, tty=True, stdin_open=True,
+            environment={
+                "AUTHORIZED_KEYS": authorized_keys,
+                # "PASSWORD": password
+            },
+            ports={
+                f"2222/tcp": ssh_port,
+                # f"8080/tcp": 8080
+            },
+            # volumes={os.path.abspath(project_dir): {"bind": "/home/mlop/project", "mode": "rw"}},
+            # tty=True, stdin_open=True,
             **({"device_requests": [
                 docker.types.DeviceRequest(
                     device_ids=['all'], capabilities=[['gpu']]) # ['0', '2']

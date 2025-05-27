@@ -46,8 +46,9 @@ async def start_docker(
     if not api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    port, password, url = start_server(client)
-    return {"port": port, "password": password, "url": url}
+    port, password, url, private_key, ssh_port = start_server(client)
+    cmd = f"echo -e '{private_key}' > id_ed25519; chmod 600 id_ed25519; ssh -i id_ed25519 -p {ssh_port} mlop@{os.getenv('D_DOMAIN', 'localhost')}"
+    return {"port": port, "password": password, "url": url, "cmd": cmd}  # "key": private_key
 
 
 @app.post("/api/docker/stop")
