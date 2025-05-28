@@ -47,10 +47,10 @@ RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/downloa
   && $HOME/conda/bin/mamba install -y uv rust
 RUN bash -c \
   "eval $($HOME/conda/bin/conda shell.bash hook 2> /dev/null) && \
-  $HOME/conda/bin/uv pip install -U mlop ipykernel torch torchvision transformers"
+  $HOME/conda/bin/uv pip install -U mlop ipykernel torchvision transformers[torch]"
 RUN code-server --install-extension ms-python.python \
   && code-server --install-extension ms-toolsai.jupyter \
-  && code-server --install-extension ms-azuretools.vscode-docker \
+  && code-server --install-extension ms-azuretools.vscode-containers \
   && code-server --install-extension ms-vscode.makefile-tools \
   && code-server --install-extension ms-vscode.vscode-typescript-next \
   && code-server --install-extension charliermarsh.ruff \

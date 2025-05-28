@@ -10,7 +10,7 @@ import docker
 
 from .utils import gen_ed25519
 
-def start_server(client: docker.DockerClient, port_range: tuple[int, int] = (20000, 40000), gpu: bool = True):
+def start_server(client: docker.DockerClient, host: str = "localhost", port_range: tuple[int, int] = (20000, 40000), gpu: bool = True):
     port = random.randint(port_range[0], port_range[1])
     while get_available(port):
         port = random.randint(port_range[0], port_range[1])
@@ -25,10 +25,11 @@ def start_server(client: docker.DockerClient, port_range: tuple[int, int] = (200
         password=password,
         image_name="mlop-code-server:latest",
         gpu=gpu,
-        authorized_keys=public_key
+        authorized_keys=public_key,
+        host=host,
     )
     print(f"Started code-server at port {port} with password {password}")
-    return port, password, f"https://mlop:{password}@{os.getenv('D_DOMAIN', '')}:{port}/{password}/", private_key, port - 1
+    return port, password, f"https://mlop:{password}@{host}:{port}/{password}/", private_key, port - 1
 
 
 def stop_server(client: docker.DockerClient, port: int):
@@ -36,8 +37,7 @@ def stop_server(client: docker.DockerClient, port: int):
     client.containers.get(f"caddy-{str(port)}").stop()
     client.containers.get(f"code-{str(port)}").remove()
     client.containers.get(f"caddy-{str(port)}").remove()
-    network = client.networks.get(f"code-network-{port}")
-    network.remove()
+    client.networks.get(f"code-network-{port}").remove()
 
 
 def stop_all(client: docker.DockerClient):
@@ -83,6 +83,7 @@ def deploy_code(
     gpu: bool = True,
     authorized_keys: str = "",
     cache_dir: str = os.path.abspath(os.getcwd()),
+    host: str = "localhost",
 ) -> dict:
     try:
         check_caddy(f"{cache_dir}/.mlop/caddy")
@@ -108,6 +109,7 @@ def deploy_code(
             },
             # volumes={os.path.abspath(project_dir): {"bind": "/home/mlop/project", "mode": "rw"}},
             # tty=True, stdin_open=True,
+            cpu_count=4,
             **({"device_requests": [
                 docker.types.DeviceRequest(
                     device_ids=['all'], capabilities=[['gpu']]) # ['0', '2']
@@ -132,7 +134,7 @@ def deploy_code(
                 "PASSWORD": password,
                 "HASHED_PASSWORD": bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode(),
                 "ACME_AGREE": "true",
-                "DOMAIN": os.getenv("D_DOMAIN", "nope"),
+                "DOMAIN": host,
                 "CLOUDFLARE_API_TOKEN": os.getenv("CLOUDFLARE_API_TOKEN", "nope")
             }
         )
